@@ -1,0 +1,524 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<?xml version="1.0" encoding="utf-8" ?>
+<html lang="en">
+<head>
+<style>
+body {
+    -moz-user-select: none;
+    hutia: expression(this.onselectstart = function() {
+        return(false)
+    });
+}
+</style>
+<meta http-equiv="Content-Type" content="text/ html; charset=UTF-8" />
+</head>
+<body>
+    <pre id="myPre" style="position:absolute; top: 0px; left: 0px; font-family: Courier New, monospace; font-size: 30px; width: 100%;height:100%; cursor: default; margin: 0px 0px 0px; padding: 0px; overflow: hidden; display: inline; font-weight: normal; text-decoration: none; font-style: normal;line-height:100%;letter-spacing: 0px;" onselectstart="return false">
+    </pre>
+<div id="editorCursor" style="position: absolute; top: 0px; left: 0px; font-family: Courier New, monospace; font-size: 30px; width: auto; cursor: default; margin: 0px 0px 0px; padding: 0px; overflow: hidden; display: none; font-weight: normal; text-decoration: none; font-style: normal; color: rgb(238, 238, 238); background-color: rgb(51, 51, 51);line-height:100%;letter-spacing: 0px;">M</div>
+<div id="editorTool" style="position: fixed; right: 0px; bottom: 0px; display: block; background-color: rgb(81, 81, 81); ">
+<div id="pasteplane" style="width:100%;display:block;text-align:center;">
+<textarea rows="8" id="pasteboard" style="width:100%;margin:5px;"></textarea>
+<input type="button" value="add box" onclick="add_box()">
+</div>
+<input type="button" value="Paste" onclick="paste()">
+<input type="button" value="Copy" onclick="copy()">
+<input type="button" value="Refresh Page" onclick="refresh()">
+<input type="button" value="Update Current Change" onclick="update()">
+<input type="button" value="+" onclick="zoom_in()">
+<input type="button" value="-" onclick="zoom_out()">
+</div>
+<script>
+
+function add_box() {
+    var data = pasteboard.value.split("\n");
+    var datawidth = 0;
+    var result = "";
+    for(var i=0, l=data.length; i<l; i++) {
+        if(datawidth < count_width(data[i])) datawidth=count_width(data[i]);
+    }
+    result = result+"+"+"-".times(datawidth)+"+"+"\n";
+    for(var i=0, l=data.length; i<l; i++) {
+        result = result+"|"+data[i]+" ".times(datawidth-count_width(data[i]))+"|\n";
+    }
+    result = result+"+"+"-".times(datawidth)+"+"+"\n";
+    pasteboard.value = result;
+}
+
+function count_width(s) {
+    var result = 0;
+    for(var i=0, l=s.length; i<l; i++) {
+        if(is_monospace(s[i])) {
+            result += 1;
+        } else {
+            result += 2;
+        }
+    }
+    return result;
+}
+
+Array.prototype.index = function(val) {
+    for(var i = this.length-1; i >= 0; i--) {
+        if(this[i] == val) return i;
+    }
+    return null;
+}
+// 查找数组中是否包含某个元素
+Array.prototype.include = function(val) {
+    return this.index(val) !== null;
+}
+
+String.prototype.times = function(n) { 
+    return Array.prototype.join.call({length:n+1}, this); 
+}; 
+
+function get_xmlhttp() {
+    var xmlhttp;
+    if (window.XMLHttpRequest)
+    {// code for IE7+, Firefox, Chrome, Opera, Safari
+        xmlhttp=new XMLHttpRequest();
+    }
+    else
+    {// code for IE6, IE5
+        xmlhttp=new ActiveXObject("Microsoft.XMLHTTP");
+    }
+    return xmlhttp;
+}
+
+var map_width=34;
+var map_height=34;
+var font_width = 18;
+var font_height = 30;
+var display_width=60;
+var display_height=24;
+var textdata;
+
+var press_on = 0;
+var pre_x, pre_y;
+var current_x, current_y;
+var real_x=0, real_y=0;
+var screen_x=0, screen_y=0;
+var cursor_x=0, cursor_y=0;
+var current_key = 0;
+var to_update = [];
+var refresh_screen_flag = 0;
+
+var map = [];
+function big_map(s_x, s_y, x, y) {
+    if(map["x"+s_x+"y"+s_y]) {
+        if(map["x"+s_x+"y"+s_y][y*map_width+x]) {
+            return map["x"+s_x+"y"+s_y][y*map_width+x];
+        } else {
+            return " ";
+        }
+    } else {
+        var xmlhttp = get_xmlhttp();
+        xmlhttp.onreadystatechange=function () {
+            if(xmlhttp.readyState==4 && xmlhttp.status==200) {
+                map["x"+s_x+"y"+s_y]=xmlhttp.response;
+                refresh_screen();
+            }
+        }
+        xmlhttp.open("GET","get.php?m="+"x"+s_x+"y"+s_y,true);
+        xmlhttp.send();
+        map["x"+s_x+"y"+s_y] = "M";
+        return " ";
+    }
+}
+
+function is_monospace(s) {
+    var code = s.charCodeAt(0);
+    return (code>=0x0020&&code<0x076d)||(code>=0x2500&&code<0x25c5);
+}
+
+function parse(x, y) {
+    var result = "";
+    for(var j=0;j<display_height;j++) {
+        for(var i=0;i<display_width;i++) {
+            var tx = (i+x)%map_width;
+            var sx = parseInt((i+x)/map_width);
+            var ty = (j+y)%map_height;
+            var sy = parseInt((j+y)/map_width);
+            var temp = big_map(screen_x+sx, screen_y+sy, tx, ty);
+            if(temp=="<") {
+                result = result+"&lt;";
+            } else if(temp==">") {
+                result = result+"&gt;";
+            } else {
+                if(is_monospace(temp)) {
+                    result = result + temp;
+                } else if(temp=="\u200b") {
+                    result = result + " ";
+                } else {
+                    i++;
+                    result = result + '<span style="display:inline-block;width:'+font_width*2+'px;">'+temp+'</span>';
+                }
+            }
+        }
+        result = result+"\n";
+    }
+    return result;
+}
+
+function cursor_flick() {
+    if(editorCursor.style.display == "none") return;
+    var color = editorCursor.style.color;
+    var backgroundColor = editorCursor.style.backgroundColor;
+    var s_x = screen_x + parseInt((real_x+cursor_x)/map_width);
+    var s_y = screen_y + parseInt((real_y+cursor_y)/map_height);
+    var x = (real_x+cursor_x)%map_width;
+    var y = (real_y+cursor_y)%map_height;
+    var mchar = big_map(s_x, s_y, x, y);
+    mchar = mchar.replace(/\s/,"&nbsp;");
+    editorCursor.innerHTML = mchar;
+    editorCursor.style.left=cursor_x*font_width+"px";
+    editorCursor.style.top=cursor_y*font_height+"px";
+    editorCursor.style.color = backgroundColor;
+    editorCursor.style.backgroundColor = color;
+}
+
+function update() {
+    for(var i=0, l=to_update.length; i<l; i++) {
+        var xmlhttp = get_xmlhttp();
+        xmlhttp.onreadystatechange=function () {
+            if(xmlhttp.readyState==4 && xmlhttp.status==200) {
+                "";
+            }
+        }
+        xmlhttp.open("POST","set.php?m="+to_update[i],true);
+        xmlhttp.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xmlhttp.send("textdata="+map[to_update[i]]);
+    }
+    to_update = [];
+}
+
+setInterval(cursor_flick, 400);
+setInterval(update, 3000);
+setInterval(refresh_screen_real, 50);
+
+function set_cursor_value(val) {
+    if(editorCursor.style.display == "none") return;
+    var s_x = screen_x + parseInt((real_x+cursor_x)/map_width);
+    var s_y = screen_y + parseInt((real_y+cursor_y)/map_height);
+    var x = (real_x+cursor_x)%map_width;
+    var y = (real_y+cursor_y)%map_height;
+    big_map(s_x,s_y,x,y);
+    map["x"+s_x+"y"+s_y] = map["x"+s_x+"y"+s_y].substring(0,y*map_width+x)+String.fromCharCode(val)+map["x"+s_x+"y"+s_y].substring(y*map_width+x+1,map["x"+s_x+"y"+s_y].length);
+    move_cursor(1, 0);
+    refresh_screen();
+    if(!to_update.include("x"+s_x+"y"+s_y)) {
+        to_update.push("x"+s_x+"y"+s_y);
+    }
+}
+
+function move_cursor(dx, dy) {
+    if(editorCursor.style.display == "none") return;
+    var move_flag = 0;
+    cursor_x = cursor_x+dx;
+    cursor_y = cursor_y+dy;
+    while(cursor_x >= display_width) {
+        cursor_x--;
+        real_x++;
+        move_flag=1;
+    }
+    while(cursor_x < 0) {
+        cursor_x++;
+        real_x--;
+        move_flag=1;
+    }
+    while(cursor_y >= display_height) {
+        cursor_y--;
+        real_y++;
+        move_flag=1;
+    }
+    while(cursor_y < 0) {
+        cursor_y++;
+        real_y--;
+        move_flag=1;
+    }
+    while(real_x<0){
+        real_x += map_width;
+        screen_x -= 1;
+    }
+    while(real_x>map_width){
+        real_x -= map_width;
+        screen_x += 1;
+    }
+    while(real_y<0){
+        real_y += map_height;
+        screen_y -= 1;
+    }
+    while(real_y>map_height){
+        real_y -= map_height;
+        screen_y += 1;
+    }
+    if(move_flag) {
+        refresh_screen();
+        window.location.hash = "x"+screen_x+"."+real_x+"y"+screen_y+"."+real_y;
+    }
+    editorCursor.style.left=cursor_x*font_width+"px";
+    editorCursor.style.top=cursor_y*font_height+"px";
+}
+
+onkeypress = function(e) {
+    current_key = e.keyCode;
+    if(current_key>=32 && current_key<=126) set_cursor_value(current_key);
+}
+
+onkeydown = function(e) {
+    switch(e.keyCode) {
+    case 37:
+        move_cursor(-1,0);
+        break;
+    case 38:
+        move_cursor(0,-1);
+        break;
+    case 39:
+        move_cursor(1,0);
+        break;
+    case 40:
+        move_cursor(0,1);
+        break;
+    }
+}
+
+onkeyup = function(e) {
+    current_key = 0;
+}
+
+onresize = function() {
+    display_width = parseInt(myPre.clientWidth/font_width);
+    display_height = parseInt(myPre.clientHeight/font_height);
+    refresh_screen();
+}
+
+
+if((navigator.userAgent.match(/iPhone/i)) || (navigator.userAgent.match(/iPod/i))) {
+    editorTool.style.display="none";
+    myPre.ontouchstart = common_mousedown;
+    myPre.ontouchend = common_mouseup;
+    myPre.ontouchmove = function(e) {
+        if(e.touches.length==1) {
+            common_mousemove(e.touches[0]);
+        }
+    }
+    myPre.ongesturechange = function(e) {
+        font_height *= e.scale;
+        if(font_height < 12) font_height = 12;
+        font_width = parseInt(font_height*0.6);
+        myPre.style.fontSize = font_height+"px";
+        editorCursor.style.fontSize = font_height+"px";
+        display_width = parseInt(myPre.clientWidth/font_width);
+        display_height = parseInt(myPre.clientHeight/font_height);
+        refresh_screen();
+    }
+} else {
+    myPre.onmousedown = common_mousedown;
+    myPre.onmouseup = common_mouseup;
+    myPre.onmouseout = common_mouseout;
+    myPre.onclick = common_click;
+    myPre.onmousemove = common_mousemove;
+}
+
+function common_mousedown(e) {
+    editorCursor.style.display="none";
+    pasteplane.style.display="none";
+    press_on = 1;
+    pre_x = e.pageX;
+    pre_y = e.pageY;
+}
+
+function common_mouseup(e) {
+    press_on = 0;
+}
+
+function common_mouseout(e) {
+    press_on = 0;
+}
+
+function common_click(e) {
+    editorCursor.style.display="inline";
+    pasteplane.style.display="none";
+    press_on = 0;
+    cursor_x = parseInt(e.pageX/font_width);
+    cursor_y = parseInt(e.pageY/font_height);
+    while(cursor_x >= display_width) {
+        cursor_x = display_width-1;
+    }
+    while(cursor_x < 0) {
+        cursor_x = 0;
+    }
+    while(cursor_y >= display_height) {
+        cursor_y = display_height-1;
+    }
+    while(cursor_y < 0) {
+        cursor_y = 0;
+    }
+    cursor_flick();
+}
+
+function common_mousemove(e) {
+    if(press_on == 0) return;
+    current_x = e.pageX;
+    current_y = e.pageY;
+    var dx=0, dy=0;
+    if(Math.abs(current_x - pre_x)>font_width) {
+        dx = parseInt((pre_x - current_x)/font_width);
+        pre_x = current_x;
+    }
+    if(Math.abs(current_y - pre_y)>font_height) {
+        dy = parseInt((pre_y - current_y)/font_height);
+        pre_y = current_y;
+    }
+    if(dx || dy) {
+        real_x = real_x + dx;
+        while(real_x<0){
+            real_x += map_width;
+            screen_x -= 1;
+        }
+        while(real_x>map_width){
+            real_x -= map_width;
+            screen_x += 1;
+        }
+        real_y = real_y + dy;
+        while(real_y<0){
+            real_y += map_height;
+            screen_y -= 1;
+        }
+        while(real_y>map_height){
+            real_y -= map_height;
+            screen_y += 1;
+        }
+        refresh_screen();
+        window.location.hash = "x"+screen_x+"."+real_x+"y"+screen_y+"."+real_y;
+    }
+}
+
+
+function paste() {
+    if(pasteplane.style.display=="none") {
+        pasteplane.style.display="block";
+        editorCursor.style.display="none";
+        return;
+    }
+    var temp = pasteboard.value;
+    var temp_x = cursor_x;
+    var temp_y = cursor_y;
+    for(var i=0, l=temp.length; i<l; i++) {
+        if(temp[i]=="\n") {
+            temp_x = cursor_x;
+            temp_y++;
+        } else if(is_monospace(temp[i])) {
+            var s_x = screen_x + parseInt((real_x+temp_x)/map_width);
+            var s_y = screen_y + parseInt((real_y+temp_y)/map_height);
+            var x = (real_x+temp_x)%map_width;
+            var y = (real_y+temp_y)%map_height;
+            big_map(s_x,s_y,x,y);
+            map["x"+s_x+"y"+s_y] = map["x"+s_x+"y"+s_y].substring(0,y*map_width+x)+temp[i]+map["x"+s_x+"y"+s_y].substring(y*map_width+x+1,map["x"+s_x+"y"+s_y].length);
+            if(!to_update.include("x"+s_x+"y"+s_y)) {
+                to_update.push("x"+s_x+"y"+s_y);
+            }
+            temp_x++;
+        } else {
+            var s_x = screen_x + parseInt((real_x+temp_x)/map_width);
+            var s_y = screen_y + parseInt((real_y+temp_y)/map_height);
+            var x = (real_x+temp_x)%map_width;
+            var y = (real_y+temp_y)%map_height;
+            big_map(s_x,s_y,x,y);
+            map["x"+s_x+"y"+s_y] = map["x"+s_x+"y"+s_y].substring(0,y*map_width+x)+temp[i]+map["x"+s_x+"y"+s_y].substring(y*map_width+x+1,map["x"+s_x+"y"+s_y].length);
+            if(!to_update.include("x"+s_x+"y"+s_y)) {
+                to_update.push("x"+s_x+"y"+s_y);
+            }
+            temp_x++;
+            s_x = screen_x + parseInt((real_x+temp_x)/map_width);
+            s_y = screen_y + parseInt((real_y+temp_y)/map_height);
+            x = (real_x+temp_x)%map_width;
+            y = (real_y+temp_y)%map_height;
+            big_map(s_x,s_y,x,y);
+            map["x"+s_x+"y"+s_y] = map["x"+s_x+"y"+s_y].substring(0,y*map_width+x)+'\u200B'+map["x"+s_x+"y"+s_y].substring(y*map_width+x+1,map["x"+s_x+"y"+s_y].length);
+            if(!to_update.include("x"+s_x+"y"+s_y)) {
+                to_update.push("x"+s_x+"y"+s_y);
+            }
+            temp_x++;
+        }
+    }
+    editorCursor.style.display="inline";
+    pasteplane.style.display="none";
+    refresh_screen();
+}
+
+function zoom_in() {
+    font_height += 2;
+    font_width = parseInt(font_height*0.6);
+    myPre.style.fontSize = font_height+"px";
+    editorCursor.style.fontSize = font_height+"px";
+    display_width = parseInt(myPre.clientWidth/font_width);
+    display_height = parseInt(myPre.clientHeight/font_height);
+    refresh_screen();
+}
+
+function zoom_out() {
+    font_height -= 2;
+    if(font_height < 12) font_height = 12;
+    font_width = parseInt(font_height*0.6);
+    myPre.style.fontSize = font_height+"px";
+    editorCursor.style.fontSize = font_height+"px";
+    display_width = parseInt(myPre.clientWidth/font_width);
+    display_height = parseInt(myPre.clientHeight/font_height);
+    refresh_screen();
+}
+
+function refresh() {
+    window.location.hash="";
+    window.location.reload();
+}
+
+function refresh_screen_real() {
+    if(refresh_screen_flag==1) {
+        refresh_screen_flag=0;
+        textdata = parse(real_x, real_y);
+        myPre.innerHTML = textdata;
+        cursor_flick();
+    }
+}
+
+function refresh_screen() {
+    refresh_screen_flag = 1;
+}
+
+function copy() {
+    top.consoleRef=window.open('','myconsole',
+        'menubar=0'
+        +',toolbar=1'
+        +',status=0'
+        +',scrollbars=1'
+        +',resizable=1');
+    top.consoleRef.document.writeln(
+        '<html><head><title>Console</title></head>'
+        +'<body bgcolor=white onLoad="self.focus()"><pre>'
+        +textdata.replace(/\u200b/g,'').replace(/<[^>]*>/g,'')
+        +'</pre></body></html>'
+        );
+    top.consoleRef.document.close();
+}
+
+display_width = parseInt(myPre.clientWidth/font_width);
+display_height = parseInt(myPre.clientHeight/font_height);
+myPre.style.fontSize = font_height+"px";
+editorCursor.style.fontSize = font_height+"px";
+if(1) {
+var temp = /x(-?\d+)\.(-?\d+)y(-?\d+)\.(-?\d+)/.exec(window.location.hash);
+if(temp) {
+    screen_x = parseInt(temp[1]);
+    real_x = parseInt(temp[2]);
+    screen_y = parseInt(temp[3]);
+    real_y = parseInt(temp[4]);
+}
+}
+
+document.oncontextmenu=function(e){return false;}
+
+refresh_screen();
+</script>
+</body>
+</html>
